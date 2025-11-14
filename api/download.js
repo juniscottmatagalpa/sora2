@@ -1,15 +1,12 @@
 export default async function handler(req, res) {
-  // 🔹 Headers CORS: permite llamadas desde cualquier dominio
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // 🔹 Responder OPTIONS (preflight)
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  // 🔹 Solo POST permitido
   if (req.method !== "POST") {
     return res.status(405).json({ code: 405, message: "Método no permitido" });
   }
@@ -21,7 +18,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ code: 400, message: "Falta la URL" });
     }
 
-    // 🔹 Worker de Cloudflare
     const WORKER = "https://youtub-lake-6929.juniscottmatagalpa.workers.dev";
 
     const r = await fetch(WORKER, {
@@ -35,13 +31,12 @@ export default async function handler(req, res) {
     if (data.code !== 200) {
       return res.status(400).json({
         code: data.code,
-        message: data.message || "Error al procesar el video"
+        message: data.message || "Error procesando el video"
       });
     }
 
     const v = data.data;
 
-    // 🔹 Devuelve solo lo que necesitamos
     return res.status(200).json({
       code: 200,
       data: {
@@ -62,4 +57,3 @@ export default async function handler(req, res) {
     });
   }
 }
-
