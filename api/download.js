@@ -1,81 +1,73 @@
 // api/download.js
+import fetch from 'node-fetch';
+
 export default async function handler(req, res) {
-  const API_KEY = process.env.PROXY_API_KEY || "";
-  const provided = req.headers['x-api-key'] || "";
+  if (req.method !== 'POST') return res.status(405).json({ code: 405, message: 'Method not allowed' });
 
-  if (provided !== API_KEY) {
-    res.statusCode = 401;
-    res.end('Unauthorized');
-    return;
-  }
+  const { video_url } = req.body || {};
+  if (!video_url) return res.status(400).json({ code: 400, message: 'video_url missing' });
 
-  // Recibe URL por query o body
-  const target = req.method === 'GET' ? req.query.url : (req.body && req.body.url);
-  if (!target) {
-    res.statusCode = 400;
-    res.end('Missing url param');
-    return;
-  }
+  const SORA_API_URL = process.env.SORA_API_URL;
+  const SORA_API_KEY = process.env.SORA_API_KEY;
 
   try {
-    const upstream = await fetch(target, {
+    if (!SORA_API_URL || !SORA_API_KEY) {
+      // Mock response para pruebas locales
+      return res.status(200).json({
+        code: 200,
+        data: {
+          encoded_video_url: 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4',
+          nowatermarked_video_url: 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4',
+          image_url: 'https://picsum.photos/320/180',
+          video_width: 1280,
+          video_height: 720,
+          description: 'Mock video (no SORA keys configured)'
+        }
+      });
+    }
+
+    // Si tienes API real, llama al endpoint de Sora (ajusta según la API real)
+    const response = await fetch(SORA_API_URL, {
+      method: 'POST',
       headers: {
-        // opcional: podrías pasar cookies/autorizaciones si TU sesión las requiere,
-        // pero no incluyas credenciales de terceros sin permiso.
-        'User-Agent': 'Sora-proxy/1.0'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SORA_API_KEY}`
+      },
+      body: JSON.stringify({ video_url })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('Sora API error', response.status, text);
+      return res.status(502).json({ code: 502, message: 'Sora API error', detail: text });
+    }
+
+    const payload = await response.json();
+
+    // MAPEAR según la estructura real de la respuesta de Sora.
+    // Aquí asumo que la respuesta contiene direct links en payload.result.video_url u otro campo.
+    // Ajústalo a tu API real.
+    const encodedVideoUrl = payload.encoded_video_url || payload.video_url || payload.result?.video_url;
+    const nowatermarked = payload.nowatermarked_video_url || null;
+    const image = payload.image_url || payload.thumbnail || null;
+
+    if (!encodedVideoUrl) {
+      // Si la respuesta no tiene el link esperado, devuelves payload para depuración
+      return res.status(200).json({ code: 200, data: { raw: payload } });
+    }
+
+    return res.status(200).json({
+      code: 200,
+      data: {
+        encoded_video_url: encodedVideoUrl,
+        nowatermarked_video_url: nowatermarked,
+        image_url: image,
+        description: payload.description || null
       }
     });
 
-    if (!upstream.ok) {
-      res.statusCode = 502;
-      res.end('Upstream fetch failed: ' + upstream.status);
-      return;
-    }
-
-    // Determinar nombre de archivo sencillo
-    const contentDispositionFromUp = upstream.headers.get('content-disposition');
-    let filename = 'video';
-    if (contentDispositionFromUp) {
-      const m = /filename="?([^"]+)"?/.exec(contentDispositionFromUp);
-      if (m) filename = m[1];
-    } else {
-      const urlName = new URL(target).pathname.split('/').pop();
-      if (urlName) filename = urlName;
-    }
-
-    const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
-    const contentLength = upstream.headers.get('content-length');
-
-    res.setHeader('Content-Type', contentType);
-    if (contentLength) res.setHeader('Content-Length', contentLength);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    // Optional security headers
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-
-    // Streamear cuerpo al cliente
-    const reader = upstream.body.getReader();
-    const stream = new ReadableStream({
-      pull(controller) {
-        return reader.read().then(({ done, value }) => {
-          if (done) {
-            controller.close();
-            return;
-          }
-          controller.enqueue(value);
-        });
-      }
-    });
-    const responseBody = stream.pipeThrough(new TextEncoderStream()); // Vercel env compatibility may variar
-    // En Node/Vercel, podemos usar pipeTo:
-    const nodeStream = upstream.body; // en runtimes con fetch.body como stream
-    // Si pipe directo no funciona, fallback a buffer (solo si archivo no muy grande)
-    // Aquí haremos simple: usar arrayBuffer -> send (menos eficiente para archivos grandes)
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    res.end(buffer);
   } catch (err) {
-    console.error(err);
-    res.statusCode = 500;
-    res.end('Internal error');
+    console.error('Server error', err);
+    return res.status(500).json({ code: 500, message: 'Internal server error' });
   }
 }
