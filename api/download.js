@@ -18,18 +18,18 @@ export default async function handler(req, res) {
 
     const text = await r.text();
 
-    let json;
+    // Intentar parsear JSON
     try {
-      json = JSON.parse(text);
-    } catch (e) {
+      const json = JSON.parse(text);
+      return res.status(200).json(json);
+    } catch (err) {
+      // En caso de recibir HTML u otro contenido, devolver mensaje claro
       return res.status(500).json({
         code: 500,
-        message: "El Worker devolvió datos no JSON",
-        raw: text.substring(0, 200)
+        message: "El Worker devolvió contenido no-JSON (HTML u otro)",
+        raw: text.substring(0, 1000)
       });
     }
-
-    return res.status(200).json(json);
 
   } catch (e) {
     return res.status(500).json({ code: 500, message: "Error interno", error: e.message });
